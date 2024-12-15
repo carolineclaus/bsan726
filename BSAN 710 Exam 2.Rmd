@@ -1,0 +1,245 @@
+---
+title: "BSAN 710 Exam 2"
+author: "Caroline Claus"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+install.packages("carat")
+library(carat)
+library(MEMSS)
+library(dplyr)
+library(ggplot2)
+library(lme4)
+```
+
+# Problem 0
+I worked on this exam completely on my own. All work is my original work, and I received no help from anyone else, besides my tutor. Bennett asked for clarification on the problems, so I gave him an example of steps I followed and code I used, so if our processes look similar, that is why, but I completed everything prior to him asking, so everything is my original work.  
+
+# Problem 1: Irrigation Dataset
+### Initial Visuals, Models, and Thoughts
+
+**Ho: there is no difference in mean (or median) yield when considering different combinations of varieties and irrigation methods (variety and/or irrigation have no effect on yield).**
+
+**H1: null is false and there is a difference in mean (or median) yield when considering different combinations of varieties and irrigation methods (variety and/or irrigation has an effect on yield).**
+
+```{r}
+# Load the necessary package and dataset
+install.packages("faraway")
+library(faraway)
+data("irrigation")
+help(irrigation)
+
+#Explore the data
+str(irrigation)
+summary(irrigation)
+
+# Boxplot to visualize the interaction between irrigation and variety
+boxplot(yield ~ irrigation * variety, data = irrigation,
+        main = "Interaction between Irrigation and Variety on Yield",
+        xlab = "Irrigation and Variety", ylab = "Yield",
+        col = c("lightblue", "lightgreen", "lightcoral", "lightyellow"))
+
+# Fit a linear model to analyze the effect of irrigation and variety on yield
+model1 <- lmer(yield ~ irrigation * variety + (1|field), data = irrigation)
+
+# Show the summary and anova of the model
+sum_model1 <- summary(model1)
+sum_model1
+
+anova(model1)
+
+#Check residual diagnostics
+par(mfrow = c(2,2))
+plot(residuals(model1), main = "Residual Plot")
+qqnorm(residuals(model1))
+qqline(residuals(model1), col = "red")
+```
+**From the boxplot demonstrating the average yields in relation to the interaction between irrigation and variety, it seems like there may be combinations that perform better than others. The model that I fit includes an interaction term between irrigation and variety as fixed effects, as well as the inclusion of field as a random effect, since we cannot necessarily predict the type of field that will be used in this problem, but we are concerned with looking at how irrigation and variety relate in terms of yield. The summary output shows that none of the fixed effects (the interaction between variety and irrigation) are significant, since the p-values are greater than 0.05. We know this by looking at the t-stats, which are all less than |2|, meaning the observations are not greater than 2 std. dev. away from the mean, resulting in being insignificant observations. The anova table provides the same results of insignificant t-stats. The residual plot shows constant variance and the QQ plot follows a linear enough relationship for me to feel confident in continuing without any transformations. Below, I will explore which combination would give the greatest yield, regardless of p-values and significance, as this question prompts.**
+
+```{r}
+# Find the optimal combination of irrigation and variety for greatest yield
+#Calculate means for irrigation and variety combinations
+library(dplyr)
+results <- irrigation %>%
+  group_by(irrigation, variety) %>%
+  summarize(mean_yield = mean(yield), .groups = "drop")
+print(results)
+
+# Identify the best combination
+best_combination <- results[which.max(results$mean_yield), ]
+print(best_combination)
+
+# Run the confint function to get the confidence intervals
+conf_intervals <- confint(model1)
+conf_intervals
+
+# Print only irrigation 4:variety 2
+specific_line <- grep("(Intercept)", rownames(conf_intervals), value = TRUE)
+conf_intervals[specific_line, ]
+
+```
+**After viewing the mean yield for every combination of irrigation and variety, the output shows that the combination of i4 and v2 provides the highest average yield, so that is the combination I would recommend to the farmer in Southwest Kansas. If they are implementing both varieties, but only choosing one irrigation tactic, I would still recommend investing in i4, since it has the highest yield for both variety types (42.0 with v1 and 43.8 with v2). The confidence interval states that we can be 95% confident that the true average yield falls between 33.8 and 43.2 units. Additionally, we can be 95% confident that the true average yield (with the use of irrigation tactic 4 and variety 2) will be between -2.02 and 4.43 units higher than the true mean. However, I would warn the farmer that this data was collected from farms in Northeast Kansas, so the application to the south could be different and there could be a more optimal combination where that new farmer is located.**
+
+# Problem 2: Turkey Dataset
+### Initial Visuals, Models, and Thoughts
+
+**Ho: Average weight gain of turkeys DOES NOT change when given different amounts of methionine or when receiving it from a different source, when controlling for the method used to give the amino acid.**
+
+**H1: Null is false and average weight gain of turkeys DOES change when given different amounts of methionine or when receiving it from a different source, when controlling for the method used to give the amino acid.**
+
+```{r}
+# loading packages, libraries, and examining the data
+install.packages("car")
+install.packages("carData")
+install.packages("effects")
+library(effects)
+library(alr4)
+data("turkey")
+help(turkey)
+head(turkey)
+
+# Visualize
+plot(turkey$Gain ~ turkey$A, 
+     xlab = "Methionine",
+     ylab = " Weight Gain",
+     main = "Weight Gain vs Methionine Level",
+     pch = as.numeric(turkey$S), col = as.numeric(turkey$S))
+legend("topleft", legend = unique(turkey$S),
+       col = unique(as.numeric(turkey$S)),
+       pch = unique(as.numeric(turkey$S)),
+       title = "Source(S)")
+
+# fitting model
+mturkey <- lm(Gain ~ A +I(A^2) + S + A:S +I(A^2):S + m, data = turkey)
+summary(mturkey)
+
+#Check model diagnostics
+par(mfrow = c(2,2))
+plot(mturkey)
+
+# Calculate optimal methionine levels for each source
+coefficients <- coef(mturkey)
+optimal_methionine_all_sources <- list()
+
+# Extract unique sources
+sources <- unique(turkey$S)
+
+for (source in sources) {
+  # Get coefficients for the source, defaulting to 0 if they are missing
+  beta_A <- coefficients["A"]
+  beta_A2 <- coefficients["I(A^2)"]
+  beta_interaction <- ifelse(!is.na(coefficients[paste0("A:S", source)]), 
+                             coefficients[paste0("A:S", source)], 0)
+  beta_interaction_A2 <- ifelse(!is.na(coefficients[paste0("I(A^2):S", source)]), 
+                                coefficients[paste0("I(A^2):S", source)], 0)
+  
+  # Optimal methionine for the source (vertex of the quadratic)
+  optimal_methionine <- -(beta_A + beta_interaction) / (2 * (beta_A2 + beta_interaction_A2))
+  
+  # Store the result in the list
+  optimal_methionine_all_sources[[as.character(source)]] <- optimal_methionine
+}
+
+# Print optimal methionine levels for all sources
+cat("Optimal Methionine Levels for Each Source:\n")
+print(optimal_methionine_all_sources)
+
+# Fit a simplified model without interaction terms
+model_no_interaction <- lm(Gain ~ A + I(A^2) + S + m, data = turkey)
+summary(model_no_interaction)
+
+# Calculate the overall optimal methionine
+coeff_no_interaction <- coef(model_no_interaction)
+optimal_methionine_overall <- -coeff_no_interaction["A"] / (2 *coeff_no_interaction["I(A^2)"])
+cat("Overall Optimal Methionine Level (All Sources Combined):", optimal_methionine_overall, "\n")
+```
+**The plot of the data shows that each source produces a similar weight gain when giving an amount of methionine to the turkey. In my model, I included Gain as the response, and the interaction between Source and Amount as predictors (as well as their individual impact), while also controlling for the method used (m). Since their interaction was insignificant, I excluded them and made a simpler model. SD represents the variability within each group, which could be useful for modeling uncertainty, but since we are considering a simple regression, I did not include it in the model since we are not concerned with the significance of within-model variability. The model diagnostics look okay to me, even though there are a few outliers, since the QQ plot is mostly normal, and the other plots are not being impacted too much by them. Next, I found the optimal methionine level for each source, which all came out to be 0.3053, meaning the optimal level does not change for each source. With the simpler model, I followed the same steps, and the new methionine level for all sources is 0.4842. **
+
+
+# Problem 3: Ames Housing Dataset
+### Initial Visuals, Models, and Thoughts
+
+**Ho: Average Sale Price does not change when above ground sqft. or basement sqft. change, while controlling for age of house when its sold, overall quality of the house, overall condition of the house, size of the lot, garage area, and total above ground rooms.**
+
+**H1: Null is false: Average Sale Price does change when above ground sqft. or basement sqft. change, while controlling for age of house when its sold, overall quality of the house, overall condition of the house, size of the lot, garage area, and total above ground rooms.**
+
+```{r}
+# loading and looking at the data
+library(AmesHousing)
+ames <- make_ames()
+head(ames)
+
+# creating an age at sale variable
+ames$Age_At_Sale <- ames$Year_Sold - ames$Year_Built
+
+# fitting the model
+amodel <- lm(Sale_Price ~ Gr_Liv_Area + Total_Bsmt_SF + Age_At_Sale + Overall_Qual + Overall_Cond + Lot_Area + Garage_Area + TotRms_AbvGrd, data = ames)
+
+# looking at diagnostic plots to check assumptions
+par(mfrow = c(1,3))
+plot(amodel, which = 1) # observations 2182, 2181, and 1499 are identified as outliers 
+plot(amodel, which = 2)
+plot(amodel, which = 4)
+
+# viewing summary output
+summary(amodel)
+
+# looking at distribution of sales price
+ggplot(ames, aes(x = Sale_Price)) + 
+  geom_histogram(binwidth = 10000, fill = "skyblue", color = "black") + 
+  labs(title = "Histogram of Sales Price", x = "Sale Price", y = "Count")
+```
+**I created a variable called Age_At_Sale by subtracting the year built from the year sold. I then fit the model, while including my two additional controls, which I chose to be garage area and total rooms above ground, since I figured those may have an interesting impact on the sale price, as well, and I did not want them to skew our results. The histogram gives us an idea that the sales price is pretty skewed right, and the plots suggest the need to exclude a few points (2181, 2182, and 1499), since they are identified as outliers in the plots checking assumptions. Below, I will clean the data, and take a log transformation of sales price to ensure we can continue with analysis confidently.**
+
+```{r}
+# Remove the outliers by excluding the specified row indices
+ames_clean <- ames[-c(2182, 2181, 1499, 1183), ]
+
+# Refit the model without the outliers
+amodel_clean <- lm(Sale_Price ~ Gr_Liv_Area + Total_Bsmt_SF + Age_At_Sale + Overall_Qual + Overall_Cond + Lot_Area + Garage_Area + TotRms_AbvGrd, data = ames_clean)
+
+# Look at plots of the cleaned model
+par(mfrow = c(1, 2))
+plot(amodel_clean, which = 1)
+plot(amodel_clean, which = 2)
+
+# log transformation
+ames_clean$logSale_Price <- log(ames_clean$Sale_Price, 10)
+
+# Refit the model with the log-transformed Sale_Price
+amodel_log <- lm(logSale_Price ~ Gr_Liv_Area + Total_Bsmt_SF + Age_At_Sale + Overall_Qual + Overall_Cond + Lot_Area + Garage_Area + TotRms_AbvGrd, data = ames_clean)
+
+# Check the summary of the new model
+summary(amodel_log)
+
+# Looking at Log Plots
+par(mfrow = c(1, 2)) 
+plot(amodel_log, which = 1)
+plot(amodel_log, which = 2)
+
+# Get the full confidence intervals
+conf_intervals <- confint(amodel_log)
+
+# Subset the intervals for Intercept, Gr_Liv_Area, and Total_Bsmt_SF
+conf_intervals_subset <- conf_intervals[c("(Intercept)", "Gr_Liv_Area", "Total_Bsmt_SF"), ]
+
+# Print the subsetted confidence intervals
+print(conf_intervals_subset)
+
+# Transforming back to original scale
+10^conf_intervals_subset
+```
+**The cleaned data and log transformed sales price left almost every single variable significant! This means that we can attribute an increase in sales price to an increase in sqft (both above and below ground). The diagnostic plots look better, in my opinion, but there are still some outliers, which I am hesitant to remove, simply because we have already removed the biggest outliers and taken a transformation, so I feel this data is still fit for analysis. The confidence intervals state that we can be 95% confident that the true average log salesprice falls between 4.423 and 4.561, which increases by between 1.3 and 0.0001 when the above ground sqft. increases by 1, and increases by between 6.3 and 0.00008 when the downstairs sqft. increases by 1. When transforming back to the original scale, we see that we can be 95% confident that the true average median sales price falls between $26,480 and $35,360. We can be 95% confident that the true median sales price will increase by about .034% for each additional upstairs sqft, and it will increase by about .015% for each additional downstairs sqft.**
+
+
+(b) Do you agree with the controls I have selected for you? Explain why or why not? In addition,
+provide a defensible justification for the two additional controls. Discuss, with justification, what
+parts of your analysis would you be willing to extend to Lawrence, KS. Discuss, with justification,
+what parts of your analysis you would not be willing to extend to Lawrence, KS.
+**I do agree with most of the controls you selected. However, I think that the age of the house when it is sold definitely has an effect on the price, but it is most likely highly correlated to the overall quality and condition of the house, so that could be clouding the analysis, since too many correlated variables in a model will 'cancel each other out,' for lack of a better phrase. However, including the age was still significant, so I don't think it posed too much of an issue here. The quality and condition of the house were great controls, since those do greatly impact the sale price of a house. The size of the lot would also greatly impact the sale price, so I agree with this control, as well. The controls I included in addition were garage area and total rooms above ground. I feel that many people value having a garage, or at least consider it when negotiating/justifying the price of a home, so I wanted to include it to account for that. Total rooms above ground is also an effective control to have, since I have the bias of prefering above ground rooms, rather than rooms in the basement, so it was interesting to see that that control also had an impact on the sale price. I would be willing to extend the fact that sales price increases as sqft (both above and below ground) impacts sales price positively, since I feel that is a universal conclusion. I also think that garage space and lot size have a huge impact on sales price, specifically in Lawrence, since college students do typically value those attributes in a home. However, I would be hesitant to apply the rooms above ground significance to Lawrence, since most college students would not really let the number of rooms below ground impact their demand (or willingness to buy) of the house, since they are more concerned with the number of rooms in general, rather than the exact location of those rooms. The median would also likely change significantly when looking at Ames vs. Lawrence, since Lawrence may be a pricier place to live, since demand is higher. **
